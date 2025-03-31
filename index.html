@@ -224,7 +224,9 @@
         <div class="message"></div>
         <button id="play-again">Play Again</button>
     </div>
-    
+    <audio id="flip-sound">
+    <source src="Flip.mp3" type="audio/mp3">
+</audio>
     
     <audio id="bg-music" loop>
         <source src="music/relaxing.mp3" type="audio/mp3">
@@ -461,13 +463,17 @@
                 const remaining = unflipped.filter(c => c !== first);
                 return [first, remaining[Math.floor(Math.random() * remaining.length)]];
             }
-            async flipCard(card, isPlayer) {
-                return new Promise(resolve => {
-                    card.classList.add('flipped');
-                    if (isPlayer) this.lastRevealed.push(card);
-                    setTimeout(resolve, 600);
-                });
-            }
+             async flipCard(card, isPlayer) {
+    return new Promise(resolve => {
+        const flipSound = document.getElementById("flip-sound");
+        flipSound.currentTime = 0; // Reset sound if played before
+        flipSound.play(); // Play sound
+
+        card.classList.add('flipped');
+        if (isPlayer) this.lastRevealed.push(card);
+        setTimeout(resolve, 600);
+    });
+}
 
            async unflipCards(cards) {
             await Promise.all(cards.map(card => {
