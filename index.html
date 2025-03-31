@@ -336,43 +336,133 @@
                 }
                 this.checkGameEnd();
             }
+            async flipCard(card, isPlayer) {
+        return new Promise(resolve => {
+            const flipSound = document.getElementById("flip-sound");
+            flipSound.currentTime = 0;
+            flipSound.play();
 
-            async botTurn() {
-                let botMadeMatch = true;
+            card.classList.add('flipped');
+            this.updateBotMemory([card], false); // Track all flipped cards
+            
+            setTimeout(resolve, 600);
+        });
+    }
 
-                while (botMadeMatch) {
-                    botMadeMatch = false;
-                    const botCards = this.selectBotCards();
+    async botTurn() {
+        let botMadeMatch = true;
+        let attempts = 0;
 
-                    if (!botCards) break;
+        while (botMadeMatch && attempts < 3) {
+            attempts++;
+            botMadeMatch = false;
+            const firstCard = this.selectFirstCard();
+            
+            if (!firstCard) break;
 
-                    document.body.style.cursor = 'progress';
-                    this.disableBoard();
+            this.disableBoard();
+            document.body.style.cursor = 'progress';
 
-                    await this.flipCard(botCards[0], false);
-                    await this.flipCard(botCards[1], false);
+            await this.flipCard(firstCard, false);
+            const firstCardValue = firstCard.dataset.value;
 
-                    const isMatch = botCards[0].dataset.value === botCards[1].dataset.value;
+            await new Promise(resolve => setTimeout(resolve, 1000));
 
-                    await new Promise(resolve => setTimeout(resolve, 1000));
+            const secondCard = this.selectSecondCard(firstCardValue);
+            
+            if (secondCard) {
+                await this.flipCard(secondCard, false);
+                const isMatch = firstCardValue === secondCard.dataset.value;
 
-                    if (isMatch) {
-                        this.botScore++;
-                        this.markMatched('bot', ...botCards);
-                        botMadeMatch = true;
-                        document.getElementById('bot-score').textContent = `Bot: ${this.botScore}`;
-                    } else {
-                        await this.unflipCards(botCards);
-                    }
+                await new Promise(resolve => setTimeout(resolve, 1000));
 
-                    document.body.style.cursor = 'default';
-                    this.enableBoard();
-
-                    this.updateBotMemory(botCards, isMatch);
-                    this.checkGameEnd();
+                if (isMatch) {
+                    this.botScore++;
+                    this.markMatched('bot', firstCard, secondCard);
+                    botMadeMatch = true;
+                    document.getElementById('bot-score').textContent = `Bot: ${this.botScore}`;
+                    this.updateBotMemory([firstCard, secondCard], true);
+                } else {
+                    await this.unflipCards([firstCard, secondCard]);
                 }
-                this.isPlayerTurn = true;
             }
+
+            this.enableBoard();
+            document.body.style.cursor = 'default';
+            this.checkGameEnd();
+        }
+        this.isPlayerTurn = true;
+    }
+
+    selectFirstCard() {
+        // Get all remembered cards that are still playable
+        const memoryEntries = Array.from(this.botMemory.values())
+            .filter(entry => !entry.matched && !entry.element.classList.contains('flipped'));
+
+        // Try to find cards with known matches
+        const matchCandidates = [];
+        memoryEntries.forEach(entry => {
+            const matches = memoryEntries.filter(e => 
+                e.value === entry.value && e.element !== entry.element
+            );
+            if (matches.length > 0) {
+                matchCandidates.push(entry.element);
+            }
+        });
+
+        if (matchCandidates.length > 0) {
+            return matchCandidates[Math.floor(Math.random() * matchCandidates.length)];
+        }
+
+        // Fallback to random selection from memory or unflipped cards
+        return memoryEntries.length > 0 
+            ? memoryEntries[Math.floor(Math.random() * memoryEntries.length)].element
+            : this.getRandomUnflippedCard();
+    }
+
+    selectSecondCard(targetValue) {
+        // Find best match from memory
+        const matches = Array.from(this.botMemory.values())
+            .filter(entry => 
+                entry.value === targetValue &&
+                !entry.matched &&
+                !entry.element.classList.contains('flipped')
+            );
+
+        return matches.length > 0 
+            ? matches[0].element 
+            : this.getRandomUnflippedCard(targetValue);
+    }
+
+    updateBotMemory(cards, isMatched) {
+        cards.forEach(card => {
+            const key = `${card.dataset.value}-${card.dataset.index}`;
+            this.botMemory.set(key, {
+                value: card.dataset.value,
+                element: card,
+                timestamp: Date.now(),
+                matched: isMatched
+            });
+        });
+
+        // Maintain only last 6 cards in memory
+        if (this.botMemory.size > 6) {
+            const entries = Array.from(this.botMemory.entries())
+                .sort((a, b) => a[1].timestamp - b[1].timestamp);
+            entries.slice(0, entries.length - 6).forEach(([key]) => this.botMemory.delete(key));
+        }
+    }
+
+    getRandomUnflippedCard(excludeValue = null) {
+        const unflipped = this.getUnflippedCards().filter(card => 
+            !excludeValue || card.dataset.value !== excludeValue
+        );
+        return unflipped.length > 0 
+            ? unflipped[Math.floor(Math.random() * unflipped.length)]
+            : null;
+    }
+
+            
 
             markMatched(type, ...cards) { // Corrected order
                 if (cards && cards.length > 0) { // Check if cards exist
@@ -463,17 +553,7 @@
                 const remaining = unflipped.filter(c => c !== first);
                 return [first, remaining[Math.floor(Math.random() * remaining.length)]];
             }
-             async flipCard(card, isPlayer) {
-    return new Promise(resolve => {
-        const flipSound = document.getElementById("flip-sound");
-        flipSound.currentTime = 0; // Reset sound if played before
-        flipSound.play(); // Play sound
-
-        card.classList.add('flipped');
-        if (isPlayer) this.lastRevealed.push(card);
-        setTimeout(resolve, 600);
-    });
-}
+             
 
            async unflipCards(cards) {
             await Promise.all(cards.map(card => {
@@ -486,26 +566,7 @@
             }));
         }
 
-            updateBotMemory(cards, isMatch) {
-                cards.forEach(card => {
-                    const key = `${card.dataset.value}-${card.dataset.index}`;
-                    const memoryEntry = {
-                        value: card.dataset.value,
-                        element: card,
-                        timestamp: Date.now(),
-                        matched: isMatch
-                    };
-
-                    this.botMemory.set(key, memoryEntry);
-                });
-
-                // Clean old memory (keep last 6 entries)
-                if (this.botMemory.size > 6) {
-                    const entries = Array.from(this.botMemory.entries())
-                        .sort((a, b) => a[1].timestamp - b[1].timestamp);
-                    entries.slice(0, entries.length - 6).forEach(([key]) => this.botMemory.delete(key));
-                }
-            }
+            
         }
 
         document.addEventListener("DOMContentLoaded", () => {
